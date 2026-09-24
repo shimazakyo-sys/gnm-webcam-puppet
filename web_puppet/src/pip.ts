@@ -84,10 +84,10 @@ export class FacePip {
 
     if (!this.tracker) this.tracker = await FaceTracker.create();
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720 },
-    });
-    this.video.srcObject = this.stream;
+    // ★ mp4動画を使う
+    const video = document.getElementById("inputVideo") as HTMLVideoElement;
+    this.video = video;
+
     await this.video.play();
 
     this.running = true;
@@ -98,9 +98,6 @@ export class FacePip {
   /** Stops drawing and releases the camera. */
   stop(): void {
     this.running = false;
-    for (const track of this.stream?.getTracks() ?? []) track.stop();
-    this.stream = null;
-    this.video.srcObject = null;
     this.latest = null;
     this.context.clearRect(0, 0, this.size, this.size);
   }

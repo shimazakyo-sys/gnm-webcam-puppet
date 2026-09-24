@@ -1,3 +1,12 @@
+// ★ public/video フォルダ内の mp4 を全部列挙して最新を選ぶ
+const videos = import.meta.glob('/public/video/*.mp4', { eager: true });
+
+// mp4 のパス一覧を取り出す
+const videoPaths = Object.keys(videos);
+
+// 一番新しい mp4 を選ぶ（ファイル名の辞書順で OK）
+const latestVideo = videoPaths.sort().pop() ?? null;
+
 /**
  * M1 entry point: a static GNM head with sliders, no camera involved.
  *
@@ -439,6 +448,12 @@ function buildUi(
   }, 150);
 }
 
+// ★ 最新 mp4 を video タグに設定する
+const videoElement = document.getElementById("inputVideo") as HTMLVideoElement;
+if (latestVideo) {
+  videoElement.src = latestVideo;
+}
+
 async function main(): Promise<void> {
   const status = document.querySelector<HTMLElement>('#status')!;
   const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
@@ -472,6 +487,48 @@ async function main(): Promise<void> {
 
   buildUi(model, viewer, state, invalidate, () => verify(model, viewer, state));
 
+// ★ 録画ボタン UI を追加
+const panel = document.querySelector<HTMLElement>('#panel')!;
+const recordButtons = document.createElement('div');
+recordButtons.className = 'buttons';
+panel.append(recordButtons);
+
+// ★ 録画開始ボタン
+const startRecBtn = document.createElement('button');
+startRecBtn.textContent = 'Start recording';
+startRecBtn.addEventListener('click', () => {
+  recordChunks.length = 0; // 前回の録画をクリア
+  recorder.start();
+  startRecBtn.textContent = 'Recording...';
+});
+recordButtons.append(startRecBtn);
+
+// ★ 録画停止ボタン
+const stopRecBtn = document.createElement('button');
+stopRecBtn.textContent = 'Stop recording';
+stopRecBtn.addEventListener('click', () => {
+  recorder.stop();
+  startRecBtn.textContent = 'Start recording';
+});
+recordButtons.append(stopRecBtn);
+
+// ★ JSON 保存ボタン
+const saveJsonBtn = document.createElement('button');
+saveJsonBtn.textContent = 'Save JSON';
+recordButtons.append(saveJsonBtn);
+
+// ★ フレームデータをためる配列
+const collectedFrames: any[] = [];
+
+saveJsonBtn.addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(collectedFrames)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'frames.json';
+  a.click();
+});
+
   const resize = () => {
     const rect = canvas.parentElement!.getBoundingClientRect();
     viewer.setSize(rect.width, rect.height);
@@ -483,8 +540,38 @@ async function main(): Promise<void> {
     `${model.vertexCount.toLocaleString()} verts · ` +
     `${model.identityDim} identity · ${model.expressionDim} expression`;
 
+// ★ GNM の canvas を録画する準備
+const recordCanvas = document.querySelector<HTMLCanvasElement>('#view')!;
+const recordStream = recordCanvas.captureStream(30); // 30fps
+const recorder = new MediaRecorder(recordStream);
+const recordChunks: BlobPart[] = [];
+
+recorder.ondataavailable = (e) => recordChunks.push(e.data);
+recorder.onstop = () => {
+  const blob = new Blob(recordChunks, { type: 'video/mp4' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'gnm_record.mp4';
+  a.click();
+};
+
+// ★ 録画開始
+recorder.start();
+
   const start = performance.now();
   const loop = () => {
+
+// ★ 毎フレームの係数を収集
+collectedFrames.push({
+  time: performance.now() - start,
+  identity: Array.from(state.identity),
+  expression: Array.from(state.expression),
+  rotations: Array.from(state.rotations),
+  translation: Array.from(state.translation),
+  correctives: Array.from(state.correctives)
+});
+
     if (dirty) {
       dirty = false;
       const t0 = performance.now();
@@ -501,8 +588,8 @@ async function main(): Promise<void> {
     requestAnimationFrame(loop);
   };
   loop();
-}
 
+}
 main().catch((error) => {
   document.querySelector<HTMLElement>('#status')!.textContent = String(error);
   throw error;

@@ -1,5 +1,14 @@
 # GNM Web Puppet
 
+# Note
+
+This fork adds:
+
+- MP4 input support
+- Recording support
+- JSON export
+- GNM Head OBJ export
+
 A browser-native rebuild of [`webcam_puppet/`](../webcam_puppet/README.md):
 same idea — drive the GNM head from a webcam — but rendered on the GPU in a
 web page, with no Python at runtime.

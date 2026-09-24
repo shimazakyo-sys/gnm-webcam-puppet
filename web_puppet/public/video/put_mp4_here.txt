@@ -1,0 +1,5 @@
+Place your MP4 files in:
+ 
+web_puppet/public/video/
+ 
+The latest MP4 file will be loaded automatically.

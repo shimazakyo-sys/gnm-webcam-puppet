@@ -17,3 +17,6 @@ webcam_puppet/assets/face_landmarker.task
 # Env / secrets
 .env
 .env.*
+
+# local Google GNM repo
+GNM/
