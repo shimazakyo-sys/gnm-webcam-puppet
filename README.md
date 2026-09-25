@@ -50,7 +50,7 @@ Clone this repository:
 
 ```bash
 git clone https://github.com/shimazakyo-sys/gnm-webcam-puppet.git
-cd GNM-fork/web_puppet
+cd gnm-webcam-puppet/web_puppet
 ```
 
 Install dependencies:
