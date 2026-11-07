@@ -146,6 +146,9 @@ class FaceTracker:
         [[p.x, p.y, p.z] for p in result.face_landmarks[0]], dtype=np.float32
     )
 
+    # ★★ 顔の横幅を補正（ここが追加部分）★★
+    landmarks[:, 0] *= 0.90  # ← まずは 0.90 で試す。太い場合は 0.88 → 0.85 と調整。
+
     blendshapes = None
     if result.face_blendshapes:
       blendshapes = np.array(

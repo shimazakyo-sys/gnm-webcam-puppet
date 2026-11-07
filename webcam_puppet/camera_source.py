@@ -279,7 +279,6 @@ def score_cameras(
       time.sleep(settle_seconds)
   return scores
 
-
 def open_camera(
     index: int | None = None,
     capture_factory: CaptureFactory = _default_capture_factory,
@@ -287,96 +286,116 @@ def open_camera(
     warmup_seconds: float = _WARMUP_SECONDS,
     settle_seconds: float = _RELEASE_SETTLE_SECONDS,
 ) -> FrameSource:
-  """Opens a camera, verifying it delivers frames before returning.
+    """Opens a camera, verifying it delivers frames before returning.
 
-  Args:
-    index: Device index to open, or None to auto-select the first working one.
-    capture_factory: Opens a capture device for an index. Injectable for tests.
-    probe_limit: Number of indices to probe when auto-selecting or when
-      reporting alternatives in an error.
-    warmup_seconds: How long to wait for a device to produce its first frame.
-    settle_seconds: Pause after releasing a rejected device.
+    Args:
+        index: Device index to open, or None to auto-select the first working one.
+        capture_factory: Opens a capture device for an index. Injectable for tests.
+        probe_limit: Number of indices to probe when auto-selecting or when
+            reporting alternatives in an error.
+        warmup_seconds: How long to wait for a device to produce its first frame.
+        settle_seconds: Pause after releasing a rejected device.
 
-  Returns:
-    A verified frame source.
+    Returns:
+        A verified frame source.
 
-  Raises:
-    NoWorkingCameraError: If the requested device cannot deliver frames, or if
-      auto-selection finds none.
-  """
-  if index is None:
-    # Score and select in a single pass, keeping the winning device open. An
-    # earlier version scored every device, released them all, then re-opened the
-    # best one -- but that re-open can transiently fail while the platform tears
-    # the previous capture graph down, and falling through to the next candidate
-    # silently selected the blank infrared device the scoring existed to reject.
-    best_capture = None
-    best_index = -1
-    best_score = -1.0
-    scores: dict[int, float] = {}
+    Raises:
+        NoWorkingCameraError: If the requested device cannot deliver frames, or if
+            auto-selection finds none.
+    """
 
-    for candidate in range(probe_limit):
-      capture = capture_factory(candidate)
-      keep = False
-      try:
-        if not capture.isOpened():
-          continue
-        frames = _sample_frames(capture, _SCORING_FRAMES, warmup_seconds)
-        if not frames:
-          continue
+    # ★★ mp4入力に差し替え（ここが正しい位置）★★
+    import glob
+    import os
 
-        score = liveness_score(frames)
-        scores[candidate] = score
-        if score > best_score:
-          if best_capture is not None:
-            best_capture.release()
-          best_capture, best_index, best_score = capture, candidate, score
-          keep = True
-      finally:
-        if not keep:
-          capture.release()
-          time.sleep(settle_seconds)
+    # 動画フォルダ
+    folder = "C:/GNM-webcam-puppet/video"
 
-    if best_capture is None:
-      raise NoWorkingCameraError(
-          f'No camera delivered frames (probed indices 0-{probe_limit - 1}).'
-          ' Check that a webcam is connected and that no other application is'
-          ' using it.'
-      )
+    # フォルダ内の mp4 を全部取得
+    files = glob.glob(os.path.join(folder, "*.mp4"))
 
-    readable_scores = {i: round(s, 2) for i, s in sorted(scores.items())}
-    if best_score < _BLANK_SCORE_THRESHOLD:
-      logging.warning(
-          'Camera %d was selected but looks blank (liveness %.2f of %s). It is'
-          ' probably an infrared or virtual device. Run with --list_cameras and'
-          ' pass --camera explicitly.',
-          best_index,
-          best_score,
-          readable_scores,
-      )
-    else:
-      logging.info(
-          'Using camera %d (liveness %.2f of %s).',
-          best_index,
-          best_score,
-          readable_scores,
-      )
-    return FrameSource(best_capture, best_index)
+    # mp4 が無ければエラー
+    if not files:
+        raise FileNotFoundError("video フォルダに mp4 がありません")
 
-  capture = capture_factory(index)
-  if capture.isOpened() and (
-      _read_with_warmup(capture, warmup_seconds) is not None
-  ):
-    logging.info('Using camera %d.', index)
-    return FrameSource(capture, index)
-  capture.release()
+    # 更新日時が最新の mp4 を選ぶ
+    video_path = max(files, key=os.path.getmtime)
 
-  alternatives = probe_cameras(
-      probe_limit, capture_factory, warmup_seconds, settle_seconds
-  )
-  raise NoWorkingCameraError(
-      _unavailable_message(index, alternatives)
-  )
+    capture = cv2.VideoCapture(video_path)
+    if capture.isOpened():
+        return FrameSource(capture, -1)
+
+
+    # ここから下は Webカメラ探索ロジック（mp4が開けたら実行されない）
+
+    if index is None:
+        best_capture = None
+        best_index = -1
+        best_score = -1.0
+        scores: dict[int, float] = {}
+
+        for candidate in range(probe_limit):
+            capture = capture_factory(candidate)
+            keep = False
+            try:
+                if not capture.isOpened():
+                    continue
+                frames = _sample_frames(capture, _SCORING_FRAMES, warmup_seconds)
+                if not frames:
+                    continue
+
+                score = liveness_score(frames)
+                scores[candidate] = score
+                if score > best_score:
+                    if best_capture is not None:
+                        best_capture.release()
+                    best_capture, best_index, best_score = capture, candidate, score
+                    keep = True
+            finally:
+                if not keep:
+                    capture.release()
+                    time.sleep(settle_seconds)
+
+        if best_capture is None:
+            raise NoWorkingCameraError(
+                f'No camera delivered frames (probed indices 0-{probe_limit - 1}).'
+                ' Check that a webcam is connected and that no other application is'
+                ' using it.'
+            )
+
+        readable_scores = {i: round(s, 2) for i, s in sorted(scores.items())}
+        if best_score < _BLANK_SCORE_THRESHOLD:
+            logging.warning(
+                'Camera %d was selected but looks blank (liveness %.2f of %s). It is'
+                ' probably an infrared or virtual device. Run with --list_cameras and'
+                ' pass --camera explicitly.',
+                best_index,
+                best_score,
+                readable_scores,
+            )
+        else:
+            logging.info(
+                'Using camera %d (liveness %.2f of %s).',
+                best_index,
+                best_score,
+                readable_scores,
+            )
+        return FrameSource(best_capture, best_index)
+
+    capture = capture_factory(index)
+    if capture.isOpened() and (
+        _read_with_warmup(capture, warmup_seconds) is not None
+    ):
+        logging.info('Using camera %d.', index)
+        return FrameSource(capture, index)
+    capture.release()
+
+    alternatives = probe_cameras(
+        probe_limit, capture_factory, warmup_seconds, settle_seconds
+    )
+    raise NoWorkingCameraError(
+        _unavailable_message(index, alternatives)
+    )
 
 
 def _unavailable_message(index: int, alternatives: Sequence[int]) -> str:

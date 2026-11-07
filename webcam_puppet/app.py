@@ -42,6 +42,37 @@ from webcam_puppet import renderer as renderer_lib
 from webcam_puppet import solver as solver_lib
 from webcam_puppet import tracker as tracker_lib
 
+import os
+
+def next_output_path(base_folder="C:/GNM-webcam-puppet/output", prefix="output", ext=".mp4"):
+    os.makedirs(base_folder, exist_ok=True)
+    i = 1
+    while True:
+        path = os.path.join(base_folder, f"{prefix}{i:03d}{ext}")
+        if not os.path.exists(path):
+            return path
+        i += 1
+
+def next_obj_path(base_folder="C:/GNM-webcam-puppet/obj", prefix="frame", ext=".obj"):
+    os.makedirs(base_folder, exist_ok=True)
+    i = 1
+    while True:
+        path = os.path.join(base_folder, f"{prefix}{i:03d}{ext}")
+        if not os.path.exists(path):
+            return path
+        i += 1
+
+
+def save_obj(path, vertices, triangles):
+    with open(path, "w") as f:
+        # 頂点を書き出し
+        for v in vertices:
+            f.write(f"v {v[0]} {v[1]} {v[2]}\n")
+        # 面を書き出し（OBJは1始まりなので +1）
+        for tri in triangles:
+            f.write(f"f {tri[0] + 1} {tri[1] + 1} {tri[2] + 1}\n")
+
+
 _CAMERA = flags.DEFINE_integer(
     'camera',
     None,
@@ -69,7 +100,7 @@ _EXPRESSION_GAIN = flags.DEFINE_float(
     ' unexaggerated fit.',
 )
 _MIRROR = flags.DEFINE_boolean(
-    'mirror', True, 'Mirror the camera preview so it reads like a mirror.'
+    'mirror', False, 'Mirror the camera preview so it reads like a mirror.'
 )
 _REBUILD_CORRESPONDENCE = flags.DEFINE_boolean(
     'rebuild_correspondence',
@@ -108,17 +139,13 @@ def _draw_hud(
         cv2.LINE_AA,
     )
 
-
 def _composite(
     preview_bgr: npt.NDArray[np.uint8],
     render_rgb: npt.NDArray[np.uint8],
+    landmarks=None,
 ) -> npt.NDArray[np.uint8]:
-  """Stacks the camera preview and the rendered head side by side.
+  """Stacks the camera preview and the rendered head side by side."""
 
-  The preview is letterboxed into a panel the same size as the render rather
-  than matched on height, so that a wide camera cannot take the majority of the
-  window away from the head.
-  """
   render_bgr = cv2.cvtColor(render_rgb, cv2.COLOR_RGB2BGR)
   height, width = render_bgr.shape[:2]
 
@@ -130,12 +157,22 @@ def _composite(
       interpolation=cv2.INTER_AREA,
   )
 
+  # ランドマーク描画（preview を縮小した fitted に対して）
+  if landmarks is not None:
+      for (x, y, z) in landmarks:
+          
+          # ★ fitted のサイズに合わせて座標を計算 ★
+          px = int(x * fitted.shape[1])
+          py = int(y * fitted.shape[0])
+
+          cv2.circle(fitted, (px, py), 2, (0, 255, 0), -1)
+     
   panel = np.zeros_like(render_bgr)
   top = (height - fitted.shape[0]) // 2
   left = (width - fitted.shape[1]) // 2
   panel[top:top + fitted.shape[0], left:left + fitted.shape[1]] = fitted
-  return np.hstack([panel, render_bgr])
 
+  return np.hstack([panel, render_bgr])
 
 def main(argv):
   del argv
@@ -272,8 +309,27 @@ def main(argv):
 
       render_rgb = renderer.render(vertices)
 
+      # ★ ここから OBJ 出力（1秒ごと） ★
+      # 30fps 前提なので、30フレームごとに1個OBJを保存
+      if frame_index % 30 == 0:
+          obj_path = next_obj_path()
+          logging.info("Saving OBJ to %s", obj_path)
+          save_obj(obj_path, vertices, gnm.triangles)
+      # ★ ここまで追加 ★
+
       preview = cv2.flip(frame_bgr, 1) if mirror else frame_bgr
-      composited = _composite(preview, render_rgb)
+
+      # mirror のときはランドマークを左右反転する
+      if mirror and observation is not None:
+          mirrored_landmarks = [(1.0 - x, y, z) for (x, y, z) in observation.landmarks]
+      else:
+          mirrored_landmarks = observation.landmarks if observation is not None else None
+
+      composited = _composite(
+          preview,
+          render_rgb,
+          mirrored_landmarks,
+      )
 
       now = time.perf_counter()
       instantaneous_fps = 1.0 / max(now - last_time, 1e-6)
@@ -300,14 +356,16 @@ def main(argv):
       )
 
       if _RECORD.value:
-        if writer is None:
-          writer = cv2.VideoWriter(
-              _RECORD.value,
-              cv2.VideoWriter_fourcc(*'mp4v'),
-              30.0,
-              (composited.shape[1], composited.shape[0]),
-          )
-        writer.write(composited)
+          if writer is None:
+              output_path = next_output_path()
+              logging.info('Recording to %s', output_path)
+              writer = cv2.VideoWriter(
+                  output_path,
+                  cv2.VideoWriter_fourcc(*'mp4v'),
+                  30.0,
+                  (composited.shape[1], composited.shape[0]),
+              )
+          writer.write(composited)
 
       cv2.imshow(_WINDOW_NAME, composited)
       key = cv2.waitKey(1) & 0xFF

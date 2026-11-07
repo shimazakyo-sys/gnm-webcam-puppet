@@ -20,3 +20,18 @@ webcam_puppet/assets/face_landmarker.task
 
 # local Google GNM repo
 GNM/
+
+web_puppet.txt
+webcam‑puppet.txt
+
+# MP4 files
+*.mp4
+
+# Videos
+*.mp4
+
+# Python cache
+__pycache__/
+
+# Generated OBJ files
+obj/*.obj
